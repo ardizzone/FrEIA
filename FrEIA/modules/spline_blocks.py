@@ -111,8 +111,8 @@ class CubicSplineBlock(InvertibleModule):
         else:
             raise RuntimeError('{} tails are not implemented.'.format(tails))
 
-        inputs = inputs[inside_interval_mask]#.reshape(inputs.shape)
-        theta = theta[inside_interval_mask, :]#.reshape(theta.shape[0], self.splits[1], 2*self.num_bins + 2)
+        inputs = inputs[inside_interval_mask]
+        theta = theta[inside_interval_mask, :]
 
         min_bin_width=self.DEFAULT_MIN_BIN_WIDTH
         min_bin_height=self.DEFAULT_MIN_BIN_HEIGHT
@@ -413,7 +413,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
             raise ValueError('Global affine activation must be "SIGMOID", "SOFTPLUS" or "EXP"')
 
         self.in_channels         = channels
-        self.bounds = nn.Parameter(torch.ones(1, self.in_channels, *([1] * self.input_rank)) * float(bounds))
+        self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
         self.tails = tails
 
         if permute_soft:
@@ -439,7 +439,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
                                    theta,
                                    rev=False):
 
-        inside_interval_mask = (inputs >= -self.bounds) & (inputs <= self.bounds)
+        inside_interval_mask = ((inputs >= -self.bounds) & (inputs <= self.bounds)).squeeze()
         outside_interval_mask = ~inside_interval_mask
 
         masked_outputs = torch.zeros_like(inputs)
@@ -458,7 +458,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
             raise RuntimeError('{} tails are not implemented.'.format(tails))
 
         inputs = inputs[inside_interval_mask]
-        theta = theta[inside_interval_mask, :].reshape(theta.shape[0], self.splits[1], 2*self.num_bins + 2)
+        theta = theta[inside_interval_mask, :]
 
         left = -self.bounds
         right = self.bounds
@@ -472,10 +472,10 @@ class RationalQuadraticSplineBlock(InvertibleModule):
 
         unnormalized_widths = theta[...,:self.num_bins]
         unnormalized_heights = theta[...,self.num_bins:self.num_bins*2]
-        unnorm_derivatives = theta[...,self.num_bins*2:]
+        unnormalized_derivatives = theta[...,self.num_bins*2:]
 
         unnormalized_derivatives = F.pad(unnormalized_derivatives, pad=(1, 1))
-        constant = torch.log(torch.exp(1 - min_derivative) - 1)
+        constant = np.log(np.exp(1 - min_derivative) - 1)
         unnormalized_derivatives[..., 0] = constant
         unnormalized_derivatives[..., -1] = constant
 
