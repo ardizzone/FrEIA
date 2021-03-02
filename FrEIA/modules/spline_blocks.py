@@ -71,7 +71,8 @@ class CubicSplineBlock(InvertibleModule):
             raise ValueError('Global affine activation must be "SIGMOID", "SOFTPLUS" or "EXP"')
 
         self.in_channels = channels
-        self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
+        #self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
+        self.bounds = torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds)
         self.tails = tails
 
         if permute_soft:
@@ -99,11 +100,12 @@ class CubicSplineBlock(InvertibleModule):
 
 
 
-        inside_interval_mask = ((inputs >= -self.bounds) & (inputs <= self.bounds)).squeeze()
+        inside_interval_mask = torch.all((inputs >= -self.bounds) & (inputs <= self.bounds),
+                                         dim = 1)
         outside_interval_mask = ~inside_interval_mask
 
         masked_outputs = torch.zeros_like(inputs)
-        masked_logabsdet = torch.zeros_like(inputs)
+        masked_logabsdet = torch.zeros(inputs.shape[0], device=inputs.device)
 
         if self.tails == 'linear':
             masked_outputs[outside_interval_mask] = inputs[outside_interval_mask]
@@ -119,10 +121,11 @@ class CubicSplineBlock(InvertibleModule):
         eps=self.DEFAULT_EPS
         quadratic_threshold=self.DEFAULT_QUADRATIC_THRESHOLD
 
-        left = -self.bounds
-        right = self.bounds
-        bottom = -self.bounds
-        top = self.bounds
+        bound = torch.min(self.bounds)
+        left = -bound
+        right = bound
+        bottom = -bound
+        top = bound
 
         if not rev and (torch.min(inputs) < left or torch.max(inputs) > right):
             raise ValueError("Spline Block inputs are not within boundaries")
@@ -273,6 +276,8 @@ class CubicSplineBlock(InvertibleModule):
                                    2 * inputs_b * shifted_inputs +
                                    inputs_c))
 
+        logabsdet = torch.sum(logabsdet, dim=1)
+
         if rev:
             outputs = outputs * (right - left) + left
             logabsdet = logabsdet - math.log(top - bottom) + math.log(right - left)
@@ -280,9 +285,7 @@ class CubicSplineBlock(InvertibleModule):
             outputs = outputs * (top - bottom) + bottom
             logabsdet = logabsdet + math.log(top - bottom) - math.log(right - left)
 
-
         masked_outputs[inside_interval_mask], masked_logabsdet[inside_interval_mask] = outputs, logabsdet
-
 
         return masked_outputs, masked_logabsdet
 
@@ -302,7 +305,7 @@ class CubicSplineBlock(InvertibleModule):
         '''Performs the permutation and scaling after the coupling operation.
         Returns transformed outputs and the LogJacDet of the scaling operation.'''
 
-        scale = self.bounds_activation(self.bounds)
+        scale = torch.ones(x.shape[-1]).to(x.device)
         perm_log_jac = torch.sum(-torch.log(scale))
 
         if rev:
@@ -314,7 +317,7 @@ class CubicSplineBlock(InvertibleModule):
 
     def forward(self, x, c=[], rev=False, jac=True):
         '''See base class docstring'''
-
+        self.bounds = self.bounds.to(x[0].device)
         if rev:
             x, global_scaling_jac = self._permute(x[0], rev=True)
             x = (x,)
@@ -413,7 +416,8 @@ class RationalQuadraticSplineBlock(InvertibleModule):
             raise ValueError('Global affine activation must be "SIGMOID", "SOFTPLUS" or "EXP"')
 
         self.in_channels         = channels
-        self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
+        #self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
+        self.bounds = torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds)
         self.tails = tails
 
         if permute_soft:
@@ -574,7 +578,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
         '''Performs the permutation and scaling after the coupling operation.
         Returns transformed outputs and the LogJacDet of the scaling operation.'''
 
-        scale = self.bounds_activation(self.bounds)
+        scale = torch.ones(self.bounds.shape).to(x.device)
         perm_log_jac = torch.sum(-torch.log(scale))
 
         if rev:
@@ -586,6 +590,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
 
     def forward(self, x, c=[], rev=False, jac=True):
         '''See base class docstring'''
+        self.bounds = self.bounds.to(x[0].device)
 
         if rev:
             x, global_scaling_jac = self._permute(x[0], rev=True)
