@@ -99,9 +99,8 @@ class CubicSplineBlock(InvertibleModule):
                                    rev=False):
 
 
-
         inside_interval_mask = torch.all((inputs >= -self.bounds) & (inputs <= self.bounds),
-                                         dim = 1)
+                                         dim = -1)
         outside_interval_mask = ~inside_interval_mask
 
         masked_outputs = torch.zeros_like(inputs)
@@ -126,10 +125,9 @@ class CubicSplineBlock(InvertibleModule):
         right = bound
         bottom = -bound
         top = bound
-
-        if not rev and (torch.min(inputs) < left or torch.max(inputs) > right):
+        if not rev and (torch.min(inputs).item() < left or torch.max(inputs).item() > right):
             raise ValueError("Spline Block inputs are not within boundaries")
-        elif rev and (torch.min(inputs) < bottom or torch.max(inputs) > top):
+        elif rev and (torch.min(inputs).item() < bottom or torch.max(inputs).item() > top):
             raise ValueError("Spline Block inputs are not within boundaries")
 
         unnormalized_widths = theta[...,:self.num_bins]
@@ -284,7 +282,6 @@ class CubicSplineBlock(InvertibleModule):
         else:
             outputs = outputs * (top - bottom) + bottom
             logabsdet = logabsdet + math.log(top - bottom) - math.log(right - left)
-
         masked_outputs[inside_interval_mask], masked_logabsdet[inside_interval_mask] = outputs, logabsdet
 
         return masked_outputs, masked_logabsdet
@@ -321,7 +318,6 @@ class CubicSplineBlock(InvertibleModule):
         if rev:
             x, global_scaling_jac = self._permute(x[0], rev=True)
             x = (x,)
-
         x1, x2 = torch.split(x[0], self.splits, dim=1)
 
         if self.conditional:
@@ -338,7 +334,6 @@ class CubicSplineBlock(InvertibleModule):
 
         log_jac_det = j2
         x_out = torch.cat((x1, x2), 1)
-
         if not rev:
             x_out, global_scaling_jac = self._permute(x_out, rev=False)
 
@@ -347,7 +342,6 @@ class CubicSplineBlock(InvertibleModule):
         # number of elements of the first channel of the first batch member
         n_pixels = x_out[0, :1].numel()
         log_jac_det += (-1)**rev * n_pixels * global_scaling_jac
-
         return (x_out,), log_jac_det
 
     def output_dims(self, input_dims):
@@ -443,11 +437,12 @@ class RationalQuadraticSplineBlock(InvertibleModule):
                                    theta,
                                    rev=False):
 
-        inside_interval_mask = ((inputs >= -self.bounds) & (inputs <= self.bounds)).squeeze()
+        inside_interval_mask = torch.all((inputs >= -self.bounds) & (inputs <= self.bounds),
+                                         dim = -1)
         outside_interval_mask = ~inside_interval_mask
 
         masked_outputs = torch.zeros_like(inputs)
-        masked_logabsdet = torch.zeros_like(inputs)
+        masked_logabsdet = torch.zeros(inputs.shape[0]).to(inputs.device)
 
         min_bin_width=self.DEFAULT_MIN_BIN_WIDTH
         min_bin_height=self.DEFAULT_MIN_BIN_HEIGHT
@@ -460,14 +455,14 @@ class RationalQuadraticSplineBlock(InvertibleModule):
 
         else:
             raise RuntimeError('{} tails are not implemented.'.format(tails))
-
         inputs = inputs[inside_interval_mask]
         theta = theta[inside_interval_mask, :]
+        bound = torch.min(self.bounds)
 
-        left = -self.bounds
-        right = self.bounds
-        bottom = -self.bounds
-        top = self.bounds
+        left = bound
+        right = bound
+        bottom = bound
+        top = bound
 
         if not rev and (torch.min(inputs) < left or torch.max(inputs) > right):
             raise ValueError("Spline Block inputs are not within boundaries")
@@ -562,8 +557,9 @@ class RationalQuadraticSplineBlock(InvertibleModule):
                                                          + input_derivatives * (1 - theta).pow(2))
             logabsdet = torch.log(derivative_numerator) - 2 * torch.log(denominator)
 
-        masked_outputs[inside_interval_mask], masked_logabsdet[inside_interval_mask] = outputs, logabsdet
+        logabsdet = torch.sum(logabsdet, dim=1)
 
+        masked_outputs[inside_interval_mask], masked_logabsdet[inside_interval_mask] = outputs, logabsdet
 
         return masked_outputs, masked_logabsdet
 
@@ -578,9 +574,8 @@ class RationalQuadraticSplineBlock(InvertibleModule):
         '''Performs the permutation and scaling after the coupling operation.
         Returns transformed outputs and the LogJacDet of the scaling operation.'''
 
-        scale = torch.ones(self.bounds.shape).to(x.device)
+        scale = torch.ones(x.shape[-1]).to(x.device)
         perm_log_jac = torch.sum(-torch.log(scale))
-
         if rev:
             return (self.permute_function(x * scale, self.w_perm_inv),
                     perm_log_jac)
@@ -609,19 +604,16 @@ class RationalQuadraticSplineBlock(InvertibleModule):
         else:
             theta = self.subnet(x1c).reshape(x1c.shape[0], self.splits[1], 3*self.num_bins - 1)
             x2, j2 = self._unconstrained_rational_quadratic_spline(x2, theta, rev=True)
-
         log_jac_det = j2
         x_out = torch.cat((x1, x2), 1)
 
         if not rev:
             x_out, global_scaling_jac = self._permute(x_out, rev=False)
-
         # add the global scaling Jacobian to the total.
         # trick to get the total number of non-channel dimensions:
         # number of elements of the first channel of the first batch member
         n_pixels = x_out[0, :1].numel()
         log_jac_det += (-1)**rev * n_pixels * global_scaling_jac
-
         return (x_out,), log_jac_det
 
     def output_dims(self, input_dims):
