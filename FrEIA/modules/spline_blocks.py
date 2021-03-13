@@ -72,7 +72,7 @@ class CubicSplineBlock(InvertibleModule):
 
         self.in_channels = channels
         #self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
-        self.bounds = torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds)
+        self.bounds =  self.bounds_activation(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
         self.tails = tails
 
         if permute_soft:
@@ -80,7 +80,7 @@ class CubicSplineBlock(InvertibleModule):
         else:
             w = torch.zeros((channels, channels))
             for i, j in enumerate(np.random.permutation(channels)):
-                w[i, j] = 1.
+                w[i, channels-i-1] = 1.
 
         self.w_perm = nn.Parameter(torch.FloatTensor(w).view(channels, channels, *([1] * self.input_rank)),
                                    requires_grad=False)
@@ -410,8 +410,7 @@ class RationalQuadraticSplineBlock(InvertibleModule):
             raise ValueError('Global affine activation must be "SIGMOID", "SOFTPLUS" or "EXP"')
 
         self.in_channels         = channels
-        #self.bounds = nn.Parameter(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
-        self.bounds = torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds)
+        self.bounds = self.bounds_activation(torch.ones(1, self.splits[1], *([1] * self.input_rank)) * float(bounds))
         self.tails = tails
 
         if permute_soft:
